@@ -1,8 +1,8 @@
 //
-//  Model.swift
+//  Session.swift
 //  KartingTracker
 //
-//  Created by Angel De Anda on 10/10/26.
+//  One karting session saved in Records: where and when, plus its laps.
 //
 
 import Foundation
@@ -44,13 +44,11 @@ final class Session {
     }
 }
 
-@Model
-final class Lap {
-    var number: Int
-    var time: Double
-
-    init(number: Int, time: Double) {
-        self.number = number
-        self.time = time
+extension Session {
+    /// True if this session holds the fastest lap ever recorded at its track.
+    func isPersonalBest(among all: [Session]) -> Bool {
+        guard let lap = bestLap else { return false }
+        let best = all.filter { $0.trackName == trackName }.compactMap(\.bestLap).min()
+        return lap == best
     }
 }

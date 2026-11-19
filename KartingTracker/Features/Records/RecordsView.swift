@@ -18,7 +18,7 @@ struct RecordsView: View {
                     NavigationLink {
                         SessionDetailView(session: s)
                     } label: {
-                        SessionRow(session: s, isPB: isPB(s, in: sessions))
+                        SessionRow(session: s, isPB: s.isPersonalBest(among: sessions))
                     }
                 }
                 .onDelete { idx in idx.forEach { context.delete(filtered[$0]) } }

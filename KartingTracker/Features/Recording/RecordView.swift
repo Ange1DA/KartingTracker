@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Live recording screen: speed, G-forces and the Start/Stop button.
 struct RecordView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var rec = Recorder()
@@ -27,7 +28,6 @@ struct RecordView: View {
             }
 
             GGCircle(lateral: rec.lateralG, longitudinal: rec.longitudinalG, size: 180)
-              
 
             Text(String(format: "Peak: %.2f g", rec.peakG))
                 .font(.headline).monospacedDigit()
@@ -60,64 +60,5 @@ struct RecordView: View {
                 }
             }
         }
-    }
-}
-
-struct GForceTile: View {
-    let title: String
-    let value: Double
-    var signed = true
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(signed ? String(format: "%+.2f", value) : String(format: "%.2f", value))
-                .font(.title2.bold()).monospacedDigit()
-            Text("g").font(.caption2).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-struct GGCircle: View {
-    let lateral: Double
-    let longitudinal: Double
-    var maxG = 1.5
-    var size: CGFloat = 220
-
-    private func clamp(_ v: Double) -> Double { min(max(v / maxG, -1), 1) }
-
-    var body: some View {
-        let r = size / 2
-        let lineColor = Color.secondary.opacity(0.35)
-
-        ZStack {
-            // Reference rings at 0.5 g, 1.0 g, 1.5 g
-            ForEach([0.5, 1.0, 1.5], id: \.self) { g in
-                Circle()
-                    .stroke(lineColor, lineWidth: 1)
-                    .frame(width: size * g / maxG, height: size * g / maxG)
-            }
-
-            // Crosshair
-            Rectangle()
-                .fill(lineColor)
-                .frame(width: 1, height: size)
-            Rectangle()
-                .fill(lineColor)
-                .frame(width: size, height: 1)
-
-            // Current G dot
-            Circle()
-                .fill(Color.red)
-                .frame(width: 18, height: 18)
-                .offset(x: clamp(lateral) * r, y: -clamp(longitudinal) * r)
-                .animation(.easeOut(duration: 0.1), value: lateral)
-                .animation(.easeOut(duration: 0.1), value: longitudinal)
-        }
-        .frame(width: size, height: size)
-        .frame(maxWidth: .infinity)   // centers the circle horizontally
     }
 }

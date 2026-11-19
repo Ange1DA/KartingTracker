@@ -20,7 +20,7 @@ struct HomeView: View {
                             NavigationLink {
                                 SessionDetailView(session: s)
                             } label: {
-                                SessionRow(session: s, isPB: isPB(s, in: sessions))
+                                SessionRow(session: s, isPB: s.isPersonalBest(among: sessions))
                                     .padding()
                                     .background(.thinMaterial,
                                                 in: RoundedRectangle(cornerRadius: 14))
