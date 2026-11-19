@@ -4,8 +4,9 @@ import SwiftData
 /// Shown after Stop: names the session, detects laps and saves it to Records.
 struct SaveSessionView: View {
     let recording: SessionFile
-    let fileURL: URL?
+    let recordingID: String?
     var onSaved: () -> Void
+    var onDiscard: () -> Void
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -14,6 +15,7 @@ struct SaveSessionView: View {
     @State private var trackName = ""
     @State private var kartClass = ""
     @State private var notes = ""
+    @State private var confirmDiscard = false
 
     private var name: String { trackName.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var knownTracks: [String] { Array(Set(sessions.map(\.trackName))).sorted() }
@@ -72,11 +74,20 @@ struct SaveSessionView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Not now") { dismiss() }
+                    Button("Discard", role: .destructive) { confirmDiscard = true }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save).disabled(name.isEmpty)
                 }
+            }
+            .confirmationDialog("Discard this recording?", isPresented: $confirmDiscard,
+                                titleVisibility: .visible) {
+                Button("Discard recording", role: .destructive) {
+                    onDiscard()
+                    dismiss()
+                }
+            } message: {
+                Text("The sensor data will be deleted. This can't be undone.")
             }
         }
         .interactiveDismissDisabled()
@@ -87,12 +98,8 @@ struct SaveSessionView: View {
                         trackName: name,
                         kartClass: kartClass.trimmingCharacters(in: .whitespacesAndNewlines),
                         notes: notes.trimmingCharacters(in: .whitespacesAndNewlines))
-        if let d = detection {
-            s.laps = d.lapTimes.enumerated().map { Lap(number: $0.offset + 1, time: $0.element) }
-            s.bestLap = d.lapTimes.min()
-            s.gate = d.gate
-        }
-        s.rawFile = fileURL?.lastPathComponent
+        if let detection { s.applyLaps(detection) }
+        s.rawFile = recordingID
         context.insert(s)
         onSaved()
     }

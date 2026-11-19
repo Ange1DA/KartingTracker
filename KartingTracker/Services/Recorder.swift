@@ -14,6 +14,7 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var gps: [GPSSample] = []
     private var imu: [MotionSample] = []
     private var startTime = 0.0
+    private var writer: RecordingWriter?
 
     @Published var speedKmh = 0.0
 
@@ -27,7 +28,8 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var tick = 0
 
     @Published var isRecording = false
-    @Published var lastFile: URL?
+    /// ID of the most recent finished recording on disk (see SessionStore)
+    @Published var recordingID: String?
     /// The most recent finished recording, kept in memory so it can be turned into a Session
     @Published var lastRecording: SessionFile?
 
@@ -44,9 +46,16 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func start() {
         gps.removeAll(); imu.removeAll()
+        recordingID = nil; lastRecording = nil
         peakG = 0
         fLat = 0; fLon = 0; fTot = 0; tick = 0
         startTime = Date().timeIntervalSince1970
+        do {
+            writer = try RecordingWriter(start: startTime)
+        } catch {
+            writer = nil   // still recorded in memory and saved as one file on Stop
+            print("Could not create recording files:", error)
+        }
         UIApplication.shared.isIdleTimerDisabled = true   // keep screen on
         lm.startUpdatingLocation()
 
@@ -55,13 +64,17 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
         motion.deviceMotionUpdateInterval = 1.0 / 50
         motion.startDeviceMotionUpdates(to: .main) { [weak self] m, _ in
             guard let self, let m else { return }
-            let a = m.userAcceleration
+            let a = m.userAcceleration, g = m.gravity, q = m.attitude.quaternion
 
             // Save raw data at the full 50 Hz
-            self.imu.append(MotionSample(
+            let sample = MotionSample(
                 t: m.timestamp + bootOffset,
                 ax: a.x, ay: a.y, az: a.z,
-                gx: m.rotationRate.x, gy: m.rotationRate.y, gz: m.rotationRate.z))
+                gx: m.rotationRate.x, gy: m.rotationRate.y, gz: m.rotationRate.z,
+                grx: g.x, gry: g.y, grz: g.z,
+                qx: q.x, qy: q.y, qz: q.z, qw: q.w)
+            self.imu.append(sample)
+            self.writer?.append(sample)
 
             // Smooth for display (low-pass filter)
             let k = 0.15
@@ -86,30 +99,36 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
         motion.stopDeviceMotionUpdates()
         UIApplication.shared.isIdleTimerDisabled = false
         isRecording = false
-        save()
+
+        let file = SessionFile(start: startTime, gps: gps, motion: imu)
+        if let writer {
+            writer.finish(end: Date().timeIntervalSince1970)
+            recordingID = writer.id
+        } else {
+            recordingID = SessionStore.saveJSON(file)
+        }
+        writer = nil
+        lastRecording = file
     }
 
-    private func save() {
-        let file = SessionFile(start: startTime, gps: gps, motion: imu)
-        lastRecording = file
-        let name = "session_\(Int(startTime)).json"
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(name)
-        do {
-            try JSONEncoder().encode(file).write(to: url)
-            lastFile = url
-        } catch {
-            print("Save failed:", error)
-        }
+    /// Deletes the last recording from disk (the user chose not to keep it).
+    func discardLast() {
+        if let recordingID { SessionStore.delete(recordingID) }
+        recordingID = nil
+        lastRecording = nil
     }
 
     func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
         for l in locs where l.horizontalAccuracy >= 0 {
             speedKmh = max(l.speed, 0) * 3.6
-            gps.append(GPSSample(
+            let sample = GPSSample(
                 t: l.timestamp.timeIntervalSince1970,
                 lat: l.coordinate.latitude, lon: l.coordinate.longitude,
-                speed: l.speed, course: l.course, hAcc: l.horizontalAccuracy))
+                speed: l.speed, course: l.course, hAcc: l.horizontalAccuracy,
+                alt: l.altitude, vAcc: l.verticalAccuracy,
+                speedAcc: l.speedAccuracy, courseAcc: l.courseAccuracy)
+            gps.append(sample)
+            writer?.append(sample)
         }
     }
 }

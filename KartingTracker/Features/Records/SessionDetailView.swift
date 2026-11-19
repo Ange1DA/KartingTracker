@@ -23,6 +23,16 @@ struct SessionDetailView: View {
                 }
             }
 
+            if session.rawFile != nil {
+                Section {
+                    NavigationLink {
+                        SessionAnalysisView(session: session)
+                    } label: {
+                        Label("Lap analysis", systemImage: "chart.xyaxis.line")
+                    }
+                }
+            }
+
             if laps.count > 1, let best {
                 Section("Lap times") {
                     Chart(laps) { lap in

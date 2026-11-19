@@ -1,6 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct RootView: View {
+    @Environment(\.modelContext) private var context
+
     var body: some View {
         TabView {
             HomeView()
@@ -10,5 +13,6 @@ struct RootView: View {
             ImproveView()
                 .tabItem { Label("Improve", systemImage: "chart.line.uptrend.xyaxis") }
         }
+        .task { SessionStore.recoverOrphans(into: context) }
     }
 }

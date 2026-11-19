@@ -21,7 +21,12 @@ struct RecordsView: View {
                         SessionRow(session: s, isPB: s.isPersonalBest(among: sessions))
                     }
                 }
-                .onDelete { idx in idx.forEach { context.delete(filtered[$0]) } }
+                .onDelete { idx in
+                    for s in idx.map({ filtered[$0] }) {
+                        if let id = s.rawFile { SessionStore.delete(id) }   // raw data too
+                        context.delete(s)
+                    }
+                }
             }
             .navigationTitle("Records")
             .searchable(text: $search, prompt: "Search track")

@@ -51,4 +51,13 @@ extension Session {
         let best = all.filter { $0.trackName == trackName }.compactMap(\.bestLap).min()
         return lap == best
     }
+
+    /// Replaces the laps with the ones found by LapDetector, and remembers its finish line.
+    func applyLaps(_ detection: LapDetection) {
+        laps = zip(detection.crossings, detection.crossings.dropFirst()).enumerated().map { i, c in
+            Lap(number: i + 1, time: c.1 - c.0, start: c.0, end: c.1)
+        }
+        bestLap = laps.map(\.time).min()
+        gate = detection.gate
+    }
 }

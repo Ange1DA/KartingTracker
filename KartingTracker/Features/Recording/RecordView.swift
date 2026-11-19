@@ -44,8 +44,8 @@ struct RecordView: View {
             .controlSize(.extraLarge)
             .tint(rec.isRecording ? .red : .green)
 
-            if let url = rec.lastFile {
-                ShareLink(item: url) {
+            if let id = rec.recordingID {
+                ShareLink(items: SessionStore.files(id)) {
                     Label("Export last session", systemImage: "square.and.arrow.up")
                 }
             }
@@ -55,9 +55,9 @@ struct RecordView: View {
         .padding()
         .sheet(isPresented: $showSave) {
             if let recording = rec.lastRecording {
-                SaveSessionView(recording: recording, fileURL: rec.lastFile) {
-                    dismiss()   // saved: close the recorder and go back to Home
-                }
+                SaveSessionView(recording: recording, recordingID: rec.recordingID,
+                                onSaved: { dismiss() },   // close the recorder, back to Home
+                                onDiscard: { rec.discardLast() })
             }
         }
     }
