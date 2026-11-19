@@ -120,7 +120,7 @@ enum SessionStore {
                             trackName: "Recovered session",
                             notes: "Recovered automatically: this recording was never saved.")
             s.rawFile = id
-            if let detection = LapDetector.detect(recording.gps) { s.applyLaps(detection) }
+            s.applyLaps(from: recording.gps)
             context.insert(s)
         }
     }

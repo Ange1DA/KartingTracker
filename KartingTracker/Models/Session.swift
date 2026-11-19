@@ -52,12 +52,27 @@ extension Session {
         return lap == best
     }
 
-    /// Replaces the laps with the ones found by LapDetector, and remembers its finish line.
-    func applyLaps(_ detection: LapDetection) {
-        laps = zip(detection.crossings, detection.crossings.dropFirst()).enumerated().map { i, c in
-            Lap(number: i + 1, time: c.1 - c.0, start: c.0, end: c.1)
+    /// Replaces the laps, numbered 1…N in time order, and remembers the finish line.
+    func applyLaps(_ windows: [LapWindow], gate: Gate) {
+        laps = windows.sorted { $0.start < $1.start }.enumerated().map { i, w in
+            Lap(number: i + 1, time: w.time, start: w.start, end: w.end, kind: w.kind)
         }
-        bestLap = laps.map(\.time).min()
-        gate = detection.gate
+        bestLap = laps.filter(\.lapKind.countsForBest).map(\.time).min()
+        self.gate = gate
+    }
+
+    /// Laps found by LapDetector, all counted as practice.
+    func applyLaps(_ detection: LapDetection) {
+        applyLaps(LapWindow.practice(detection), gate: detection.gate)
+    }
+
+    /// Times the laps of a recording: from the grid stop when a race start is
+    /// found (and `useGridStart`), otherwise at `gate` or a line picked from the trace.
+    func applyLaps(from gps: [GPSSample], gate: Gate? = nil, useGridStart: Bool = true) {
+        if useGridStart, let phases = SessionPhases.detect(gps) {
+            applyLaps(phases.laps, gate: phases.gate)
+        } else if let detection = LapDetector.detect(gps, gate: gate) {
+            applyLaps(detection)
+        }
     }
 }

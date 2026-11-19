@@ -31,11 +31,24 @@ KartingTracker/
    every 2 s while recording, so a crash loses at most a couple of seconds.
 3. On Stop, `SaveSessionView` asks for the track name (or discards the recording) and uses `LapDetector`
    to find laps by timing each pass through a virtual finish line (`Gate`).
+   On race days `SessionPhases` spots the race start: a stop in the first 5 minutes
+   after driving off, followed by a full lap back past that spot (the grid). Laps
+   are then timed from there and split into qualifying, formation and race laps.
 4. The result is stored as a `Session` with its `Lap`s and shows up in **Records**
    and **Improve**. Recordings without a saved session (e.g. after a crash) are
    recovered automatically on the next launch.
 5. **Lap analysis** (`LapAnalysis`) reloads the raw data to show sectors, the ideal
    lap, speed and gap charts, a satellite track map and a G-G diagram.
+
+## Carrying the phone
+
+The phone can be mounted, in a chest harness or in a pocket. `KartAxes` turns the
+phone's accelerations into kart G-forces whatever way it's held: the attitude
+rotates them into a level frame, which is lined up with the acceleration measured
+by GPS, and the GPS course splits them into accel/brake and lateral. The live
+display needs a few corners to line up; until then it assumes the phone is
+upright in portrait with the screen toward the driver. Recordings made without
+attitude data get G-forces estimated from GPS alone.
 
 ## Recorded data
 

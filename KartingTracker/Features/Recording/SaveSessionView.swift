@@ -16,6 +16,18 @@ struct SaveSessionView: View {
     @State private var kartClass = ""
     @State private var notes = ""
     @State private var confirmDiscard = false
+    /// Time laps from the grid stop when a race start was found
+    @State private var useGridStart = true
+    private let phases: SessionPhases?
+
+    init(recording: SessionFile, recordingID: String?,
+         onSaved: @escaping () -> Void, onDiscard: @escaping () -> Void) {
+        self.recording = recording
+        self.recordingID = recordingID
+        self.onSaved = onSaved
+        self.onDiscard = onDiscard
+        phases = SessionPhases.detect(recording.gps)
+    }
 
     private var name: String { trackName.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var knownTracks: [String] { Array(Set(sessions.map(\.trackName))).sorted() }
@@ -30,6 +42,13 @@ struct SaveSessionView: View {
     }
 
     private var detection: LapDetection? { LapDetector.detect(recording.gps, gate: savedGate) }
+
+    private var racePhases: SessionPhases? { useGridStart ? phases : nil }
+
+    /// The laps that will be saved
+    private var windows: [LapWindow] {
+        racePhases?.laps ?? detection.map(LapWindow.practice) ?? []
+    }
 
     var body: some View {
         NavigationStack {
@@ -52,18 +71,31 @@ struct SaveSessionView: View {
                 }
 
                 Section {
-                    if let laps = detection?.lapTimes, !laps.isEmpty {
-                        LabeledContent("Laps", value: "\(laps.count)")
-                        LabeledContent("Best lap", value: formatLap(laps.min()!))
-                    } else {
+                    if let phases {
+                        Toggle("Time from the grid stop", isOn: $useGridStart)
+                        if useGridStart {
+                            LabeledContent("Race start", value: Duration.seconds(phases.raceStart - recording.start)
+                                .formatted(.time(pattern: .minuteSecond)))
+                        }
+                    }
+                    if windows.isEmpty {
                         Label("No complete laps found. You can still save the session.",
                               systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.secondary)
                     }
+                    ForEach(LapKind.allCases, id: \.self) { kind in
+                        let times = windows.filter { $0.kind == kind }.map(\.time)
+                        if let best = times.min() {
+                            LabeledContent(kind == .practice ? "Laps" : kind.title,
+                                           value: "\(times.count) · best \(formatLap(best))")
+                        }
+                    }
                 } header: {
                     Text("Laps")
                 } footer: {
-                    if detection?.lapTimes.isEmpty == false {
+                    if racePhases != nil {
+                        Text("The kart stopped and then drove a full lap from that spot, so the race started there. Laps are timed from that spot; earlier laps are qualifying.")
+                    } else if !windows.isEmpty {
                         Text(savedGate != nil
                              ? "Timed at the finish line saved for this track."
                              : "Timed at a line picked from this session. Later sessions at this track will reuse it.")
@@ -98,7 +130,11 @@ struct SaveSessionView: View {
                         trackName: name,
                         kartClass: kartClass.trimmingCharacters(in: .whitespacesAndNewlines),
                         notes: notes.trimmingCharacters(in: .whitespacesAndNewlines))
-        if let detection { s.applyLaps(detection) }
+        if let racePhases {
+            s.applyLaps(racePhases.laps, gate: racePhases.gate)
+        } else if let detection {
+            s.applyLaps(detection)
+        }
         s.rawFile = recordingID
         context.insert(s)
         onSaved()

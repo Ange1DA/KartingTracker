@@ -33,11 +33,11 @@ struct SessionAnalysisView: View {
             Section {
                 Picker("Compare lap", selection: $compareNumber) {
                     ForEach(a.laps) { l in
-                        Text("Lap \(l.number) · \(formatLap(l.time))").tag(Optional(l.number))
+                        Text("\(l.label) · \(formatLap(l.time))").tag(Optional(l.number))
                     }
                 }
             } footer: {
-                Text("Compared with your best lap (lap \(best.number)).")
+                Text("Compared with your best lap (\(best.label)).")
             }
 
             Section {
@@ -65,7 +65,7 @@ struct SessionAnalysisView: View {
                     .frame(height: 320)
                     .listRowInsets(EdgeInsets())
             } header: {
-                Text("Track map · lap \(lap.number)")
+                Text("Track map · \(lap.label)")
             } footer: {
                 Text("Red = slow, green = fast. White dots = where braking starts.")
             }
@@ -83,12 +83,20 @@ struct SessionAnalysisView: View {
     private func load() async {
         guard !loaded else { return }   // .task runs again when coming back to this screen
         let id = session.rawFile, gate = session.gate
+        // Use the saved lap windows when every lap has them (sessions saved since they're stored)
+        let saved = session.laps.compactMap { lap in
+            lap.start.flatMap { s in lap.end.map { LapWindow(start: s, end: $0, kind: lap.lapKind) } }
+        }
+        let windows = !saved.isEmpty && saved.count == session.laps.count ? saved : nil
         let result = await Task.detached(priority: .userInitiated) {
-            id.flatMap(SessionStore.load).flatMap { SessionAnalysis(recording: $0, gate: gate) }
+            id.flatMap(SessionStore.load).flatMap { recording -> SessionAnalysis? in
+                if let windows { return SessionAnalysis(recording: recording, windows: windows) }
+                return SessionAnalysis(recording: recording, gate: gate)
+            }
         }.value
         analysis = result
         // Start by comparing the second-fastest lap with the fastest
-        let byTime = result?.laps.sorted { $0.time < $1.time } ?? []
+        let byTime = result?.timedLaps.sorted { $0.time < $1.time } ?? []
         compareNumber = (byTime.dropFirst().first ?? byTime.first)?.number
         loaded = true
     }

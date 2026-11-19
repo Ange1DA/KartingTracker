@@ -16,11 +16,17 @@ final class Lap {
     /// recording. Missing for sessions saved before these were stored.
     var start: Double?
     var end: Double?
+    /// LapKind raw value; missing (practice) for sessions saved before lap types
+    var kind: String?
 
-    init(number: Int, time: Double, start: Double? = nil, end: Double? = nil) {
+    var lapKind: LapKind { kind.flatMap(LapKind.init) ?? .practice }
+
+    init(number: Int, time: Double, start: Double? = nil, end: Double? = nil,
+         kind: LapKind = .practice) {
         self.number = number
         self.time = time
         self.start = start
         self.end = end
+        self.kind = kind.rawValue
     }
 }

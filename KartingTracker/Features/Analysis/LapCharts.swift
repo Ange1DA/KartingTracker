@@ -8,9 +8,9 @@ struct SpeedChart: View {
 
     var body: some View {
         Chart {
-            series(best, name: "Best · lap \(best.number)")
+            series(best, name: "Best · \(best.label)")
             if lap.number != best.number {
-                series(lap, name: "Lap \(lap.number)")
+                series(lap, name: lap.label)
             }
         }
         .chartXScale(domain: 0...max(best.length, 1))

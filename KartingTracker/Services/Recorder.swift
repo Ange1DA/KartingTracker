@@ -23,7 +23,11 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var longitudinalG = 0.0
     @Published var totalG = 0.0
     @Published var peakG = 0.0
+    /// True once the G-forces are lined up with the kart (after some driving),
+    /// so they're right whichever way the phone is carried
+    @Published var gCalibrated = false
 
+    private var live = LiveKartG()
     private var fLat = 0.0, fLon = 0.0, fTot = 0.0
     private var tick = 0
 
@@ -47,7 +51,8 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
     func start() {
         gps.removeAll(); imu.removeAll()
         recordingID = nil; lastRecording = nil
-        peakG = 0
+        peakG = 0; gCalibrated = false
+        live = LiveKartG()
         fLat = 0; fLon = 0; fTot = 0; tick = 0
         startTime = Date().timeIntervalSince1970
         do {
@@ -75,20 +80,31 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
                 qx: q.x, qy: q.y, qz: q.z, qw: q.w)
             self.imu.append(sample)
             self.writer?.append(sample)
+            self.live.add(sample)
 
-            // Smooth for display (low-pass filter)
-            let k = 0.15
-            self.fLat += k * (a.x - self.fLat)
-            self.fLon += k * (-a.z - self.fLon)   // forward = -z (portrait, screen toward driver)
+            // Until calibrated, assume the phone is upright in portrait with the
+            // screen toward the driver (forward = -z). userAcceleration points
+            // opposite to the real acceleration, hence the signs.
+            let k = 0.15   // low-pass filter for display
+            self.fLat += k * (-a.x - self.fLat)
+            self.fLon += k * (a.z - self.fLon)
             self.fTot += k * ((a.x*a.x + a.y*a.y + a.z*a.z).squareRoot() - self.fTot)
 
             // Update the UI at ~10 Hz
             self.tick += 1
             if self.tick % 5 == 0 {
-                self.lateralG = self.fLat
-                self.longitudinalG = self.fLon
-                self.totalG = self.fTot
-                self.peakG = max(self.peakG, self.fTot)
+                if let g = self.live.current(at: sample.t) {
+                    self.lateralG = g.lat
+                    self.longitudinalG = g.lon
+                    self.totalG = (g.lat * g.lat + g.lon * g.lon).squareRoot()
+                    self.gCalibrated = true
+                } else {
+                    self.lateralG = self.fLat
+                    self.longitudinalG = self.fLon
+                    self.totalG = self.fTot
+                    self.gCalibrated = false
+                }
+                self.peakG = max(self.peakG, self.totalG)
             }
         }
         isRecording = true
@@ -129,6 +145,7 @@ final class Recorder: NSObject, ObservableObject, CLLocationManagerDelegate {
                 speedAcc: l.speedAccuracy, courseAcc: l.courseAccuracy)
             gps.append(sample)
             writer?.append(sample)
+            live.add(sample)
         }
     }
 }

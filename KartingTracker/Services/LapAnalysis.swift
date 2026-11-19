@@ -17,16 +17,20 @@ struct TracePoint {
     var lon: Double
     var speed: Double      // m/s
     var lonG: Double       // + accelerating, − braking
-    var latG: Double       // sideways
+    var latG: Double       // + turning right, − turning left
 }
 
 struct LapTrace: Identifiable {
-    let number: Int
+    let number: Int        // 1…N through the whole session
+    let kind: LapKind
+    let numberInKind: Int  // Q2, Race lap 5, …
     let start: Double      // Unix time
     let end: Double
     let points: [TracePoint]
 
     var id: Int { number }
+    var label: String { kind.label(numberInKind) }
+    var shortLabel: String { kind.shortLabel(numberInKind) }
     var time: Double { end - start }
     var length: Double { points.last?.distance ?? 0 }
 
@@ -71,20 +75,31 @@ struct SessionAnalysis {
     /// Lateral vs. accel/brake G at 10 Hz while on track, for the G-G diagram
     let gg: [GGPoint]
 
-    var best: LapTrace? { laps.min { $0.time < $1.time } }
+    /// Laps that count for bests (formation laps don't)
+    var timedLaps: [LapTrace] { laps.filter(\.kind.countsForBest) }
+    var best: LapTrace? { timedLaps.min { $0.time < $1.time } }
 
+    /// Laps found again from the raw data (sessions saved before lap windows were stored).
     init?(recording: SessionFile, gate: Gate?) {
         guard let detection = LapDetector.detect(recording.gps, gate: gate) else { return nil }
+        self.init(recording: recording, windows: LapWindow.practice(detection))
+    }
+
+    /// The laps saved with the session (keeps qualifying / formation / race and race lap 1's standing start).
+    init(recording: SessionFile, windows: [LapWindow]) {
         let gps = recording.gps
             .filter { $0.hAcc >= 0 && $0.hAcc <= LapDetector.maxAccuracy }
             .sorted { $0.t < $1.t }
         let motion = recording.motion.sorted { $0.t < $1.t }
-        let windows = Array(zip(detection.crossings, detection.crossings.dropFirst()))
+        let kart = KartMotion(motion: motion, gps: gps)
+        let sorted = windows.sorted { $0.start < $1.start }
+        let numbers = sorted.numbersInKind
 
-        laps = windows.enumerated().compactMap { i, w in
-            Self.trace(number: i + 1, from: w.0, to: w.1, gps: gps, motion: motion)
+        laps = sorted.indices.compactMap { i in
+            Self.trace(number: i + 1, kind: sorted[i].kind, numberInKind: numbers[i],
+                       from: sorted[i].start, to: sorted[i].end, gps: gps, kart: kart)
         }
-        gg = Self.ggPoints(motion, during: windows)
+        gg = Self.ggPoints(kart, laps: laps.filter(\.kind.countsForBest))
     }
 
     // MARK: Sectors
@@ -97,12 +112,12 @@ struct SessionAnalysis {
     }
 
     var bestSectors: [Double] {
-        let all = laps.map(sectorTimes)
+        let all = timedLaps.map(sectorTimes)
         return (0..<Self.sectorCount).map { i in all.map { $0[i] }.min() ?? 0 }
     }
 
     /// Your best sectors added together: the lap you've shown you can drive.
-    var theoreticalBest: Double? { laps.isEmpty ? nil : bestSectors.reduce(0, +) }
+    var theoreticalBest: Double? { timedLaps.isEmpty ? nil : bestSectors.reduce(0, +) }
 
     /// Time lost (+) or gained (−) against `reference` along the lap, every `step` metres.
     func delta(_ lap: LapTrace, vs reference: LapTrace, step: Double = 5) -> [DistanceValue] {
@@ -116,8 +131,9 @@ struct SessionAnalysis {
 
     // MARK: Building traces
 
-    static func trace(number: Int, from start: Double, to end: Double,
-                      gps: [GPSSample], motion: [MotionSample]) -> LapTrace? {
+    static func trace(number: Int, kind: LapKind = .practice, numberInKind: Int? = nil,
+                      from start: Double, to end: Double,
+                      gps: [GPSSample], kart: KartMotion?) -> LapTrace? {
         guard let first = gps.lastIndex(where: { $0.t <= start }),
               let last = gps.firstIndex(where: { $0.t >= end }),
               last - first >= 2 else { return nil }
@@ -139,12 +155,13 @@ struct SessionAnalysis {
                 let dx = (s.lon - p.lon) * mPerDegLon, dy = (s.lat - p.lat) * mPerDegLat
                 distance += (dx * dx + dy * dy).squareRoot()
             }
-            let g = meanG(motion, around: s.t) ?? gpsG(samples, at: i)
+            let g = kart?.g(around: s.t) ?? gpsG(samples, at: i)
             points.append(TracePoint(distance: distance, time: s.t - start,
                                      lat: s.lat, lon: s.lon, speed: max(s.speed, 0),
                                      lonG: g.lon, latG: g.lat))
         }
-        return LapTrace(number: number, start: start, end: end, points: points)
+        return LapTrace(number: number, kind: kind, numberInKind: numberInKind ?? number,
+                        start: start, end: end, points: points)
     }
 
     private static func interpolate(_ a: GPSSample, _ b: GPSSample, at t: Double) -> GPSSample {
@@ -155,20 +172,6 @@ struct SessionAnalysis {
                          course: a.course, hAcc: max(a.hAcc, b.hAcc))
     }
 
-    /// Average phone G-forces within ±0.5 s of `t`, in the same axes as the live
-    /// display (phone upright in portrait, screen facing the driver).
-    static func meanG(_ motion: [MotionSample], around t: Double,
-                      halfWidth: Double = 0.5) -> (lat: Double, lon: Double)? {
-        var i = lowerBound(motion, t - halfWidth)
-        var lat = 0.0, lon = 0.0, n = 0.0
-        while i < motion.count, motion[i].t <= t + halfWidth {
-            lat += motion[i].ax
-            lon += -motion[i].az
-            n += 1; i += 1
-        }
-        return n > 0 ? (lat / n, lon / n) : nil
-    }
-
     /// G-forces estimated from GPS alone (for recordings without motion data):
     /// change of speed for accel/brake, speed × turn rate for lateral.
     private static func gpsG(_ s: [GPSSample], at i: Int) -> (lat: Double, lon: Double) {
@@ -177,32 +180,24 @@ struct SessionAnalysis {
         guard dt > 0 else { return (0, 0) }
         let lon = (max(b.speed, 0) - max(a.speed, 0)) / dt / 9.81
         guard a.course >= 0, b.course >= 0 else { return (0, lon) }
-        var turn = b.course - a.course
-        if turn > 180 { turn -= 360 } else if turn < -180 { turn += 360 }
+        let turn = KartAxes.turn(from: a.course, to: b.course)
         let lat = max(s[i].speed, 0) * (turn * .pi / 180) / dt / 9.81
         return (lat, lon)
     }
 
-    private static func lowerBound(_ motion: [MotionSample], _ t: Double) -> Int {
-        var lo = 0, hi = motion.count
-        while lo < hi {
-            let mid = (lo + hi) / 2
-            if motion[mid].t < t { lo = mid + 1 } else { hi = mid }
-        }
-        return lo
-    }
-
-    /// 50 Hz motion averaged in blocks of 5 (→ 10 Hz), only during timed laps.
-    static func ggPoints(_ motion: [MotionSample], during laps: [(Double, Double)],
-                         limit: Int = 4000) -> [GGPoint] {
+    /// Lateral vs. accel/brake G at 10 Hz during timed laps (from GPS alone
+    /// at 1 Hz when the phone's motion can't be used).
+    static func ggPoints(_ kart: KartMotion?, laps: [LapTrace], limit: Int = 4000) -> [GGPoint] {
         var points: [GGPoint] = []
-        for (start, end) in laps {
-            var i = lowerBound(motion, start)
-            while i + 5 <= motion.count, motion[i + 4].t <= end {
-                let block = motion[i..<(i + 5)]
-                points.append(GGPoint(lat: block.map(\.ax).reduce(0, +) / 5,
-                                      lon: block.map { -$0.az }.reduce(0, +) / 5))
-                i += 5
+        for lap in laps {
+            if let kart {
+                for t in stride(from: lap.start, to: lap.end, by: 0.1) {
+                    if let g = kart.g(around: t + 0.05, halfWidth: 0.05) {
+                        points.append(GGPoint(lat: g.lat, lon: g.lon))
+                    }
+                }
+            } else {
+                points += lap.points.map { GGPoint(lat: $0.latG, lon: $0.lonG) }
             }
         }
         guard points.count > limit else { return points }

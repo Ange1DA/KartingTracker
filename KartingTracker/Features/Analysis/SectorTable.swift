@@ -14,10 +14,10 @@ struct SectorTable: View {
             }
             .font(.caption).foregroundStyle(.secondary)
 
-            ForEach(analysis.laps) { lap in
+            ForEach(analysis.timedLaps) { lap in
                 let sectors = analysis.sectorTimes(lap)
                 GridRow {
-                    Text("\(lap.number)")
+                    Text(lap.shortLabel)
                     ForEach(sectors.indices, id: \.self) { i in
                         Text(String(format: "%.2f", sectors[i]))
                             .foregroundStyle(sectors[i] == best[i] ? Color.purple : Color.primary)

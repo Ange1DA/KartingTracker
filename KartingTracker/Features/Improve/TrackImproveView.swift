@@ -7,7 +7,9 @@ struct TrackImproveView: View {
     @Query private var sessions: [Session]
 
     private var trackSessions: [Session] { sessions.filter { $0.trackName == track } }
-    private var lapTimes: [Double] { trackSessions.flatMap { $0.laps.map(\.time) } }
+    private var lapTimes: [Double] {
+        trackSessions.flatMap { $0.laps.filter(\.lapKind.countsForBest).map(\.time) }
+    }
 
     private var best: Double? { lapTimes.min() }
     private var average: Double? {
