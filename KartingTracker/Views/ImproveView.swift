@@ -1,0 +1,70 @@
+import SwiftUI
+import SwiftData
+
+struct ImproveView: View {
+    @Query private var sessions: [Session]
+
+    private var tracks: [String] {
+        Array(Set(sessions.map(\.trackName))).sorted()
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(tracks, id: \.self) { track in
+                NavigationLink {
+                    TrackImproveView(track: track)
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(track).font(.headline)
+                        Text("\(sessions.filter { $0.trackName == track }.count) sessions")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Improve")
+            .overlay {
+                if tracks.isEmpty {
+                    ContentUnavailableView("Nothing to analyze yet",
+                        systemImage: "chart.line.uptrend.xyaxis",
+                        description: Text("Record a session to get suggestions."))
+                }
+            }
+        }
+    }
+}
+
+struct TrackImproveView: View {
+    let track: String
+    @Query private var sessions: [Session]
+
+    private var trackSessions: [Session] { sessions.filter { $0.trackName == track } }
+    private var lapTimes: [Double] { trackSessions.flatMap { $0.laps.map(\.time) } }
+
+    private var best: Double? { lapTimes.min() }
+    private var average: Double? {
+        lapTimes.isEmpty ? nil : lapTimes.reduce(0, +) / Double(lapTimes.count)
+    }
+    private var consistency: Double? {
+        guard let avg = average, lapTimes.count > 1 else { return nil }
+        let variance = lapTimes.map { pow($0 - avg, 2) }.reduce(0, +) / Double(lapTimes.count)
+        return variance.squareRoot()
+    }
+
+    var body: some View {
+        List {
+            Section("Your numbers") {
+                LabeledContent("Best lap", value: best.map(formatLap) ?? "--")
+                LabeledContent("Average lap", value: average.map(formatLap) ?? "--")
+                LabeledContent("Consistency (std)",
+                               value: consistency.map { String(format: "±%.2f s", $0) } ?? "--")
+            }
+            Section("Suggestions") {
+                // Placeholder: the AI coach will fill this from the Python backend
+                Label("Coaching tips for this track will appear here once the AI analysis is connected.",
+                      systemImage: "sparkles")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(track)
+    }
+}
